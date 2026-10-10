@@ -1,0 +1,1269 @@
+<!--
+  粉丝信息收集网页 - 云端/本地双模式版（已对接 Supabase 云端）
+  ========================================
+  【部署状态】已对接 Supabase 云端，管理员请用 qingshen_admin@fan-feedback.com 邮箱登录
+  部署步骤（Supabase 云端）：
+  1. 创建 Supabase 项目（https://supabase.com）
+  2. 在 SQL Editor 执行建表语句创建 fan_records 表：
+     create table if not exists public.fan_records (
+       id text primary key,
+       nickname text not null,
+       realname text not null,
+       phone text default '',
+       wechat text default '',
+       province text not null,
+       city text not null,
+       district text not null,
+       detail text not null,
+       level text not null,
+       image text default '',
+       time text not null
+     );
+     alter table public.fan_records enable row level security;
+     -- 匿名可读可写（仅用于本页面收集场景，按需收紧）
+     create policy "anon all" on public.fan_records for all using (true) with check (true);
+  3. 在项目 Settings -> API 中复制 Project URL 和 anon public key
+  4. 已填入 SUPABASE_URL / SUPABASE_ANON_KEY（本文件已完成配置）
+  5. 将本 HTML 部署到任意静态托管（Netlify / Vercel / GitHub Pages / 云服务器等）即可公网使用
+  6. 留空 SUPABASE_URL / SUPABASE_ANON_KEY 时自动回退 localStorage 本地模式（当前已配置云端，默认走云端）
+
+  管理员登录：云端模式使用 Supabase Auth 邮箱登录（qingshen_admin@fan-feedback.com），本地模式保留密码 888888
+  ========================================
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>粉丝信息收集</title>
+<style>
+  :root {
+    --primary: #6c5ce7;
+    --primary-dark: #5a4bd1;
+    --bg: #f5f6fa;
+    --card: #ffffff;
+    --text: #2d3436;
+    --text-light: #636e72;
+    --border: #e1e4ed;
+    --success: #00b894;
+    --danger: #d63031;
+    --warning: #f39c12;
+    --radius: 14px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px 12px 60px;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+  h1 {
+    text-align: center;
+    font-size: 24px;
+    margin: 8px 0 4px;
+    background: linear-gradient(135deg, var(--primary), #a29bfe);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle { text-align: center; color: var(--text-light); font-size: 13px; margin-bottom: 18px; }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title::before {
+    content: "";
+    width: 4px; height: 18px;
+    border-radius: 2px;
+    background: var(--primary);
+  }
+  .form-group { margin-bottom: 14px; }
+  label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: var(--text); }
+  label .required { color: var(--danger); }
+  label .hint { color: var(--text-light); font-weight: 400; font-size: 12px; }
+  input[type="text"], input[type="password"], select, textarea {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 15px;
+    color: var(--text);
+    background: #fff;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+  }
+  input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(108,92,231,0.15);
+  }
+  textarea { resize: vertical; min-height: 64px; }
+  .inline-row { display: flex; gap: 10px; }
+  .inline-row .form-group { flex: 1; }
+  .contact-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+  .contact-tab {
+    flex: 1;
+    text-align: center;
+    padding: 9px 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-light);
+    transition: all 0.2s;
+  }
+  .contact-tab.active {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: rgba(108,92,231,0.08);
+    font-weight: 600;
+  }
+  .upload-box {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fafbfe;
+  }
+  .upload-box:hover, .upload-box.dragover { border-color: var(--primary); background: rgba(108,92,231,0.05); }
+  .upload-box .icon { font-size: 28px; }
+  .upload-box p { font-size: 13px; color: var(--text-light); margin-top: 4px; }
+  #imageInput { display: none; }
+  .preview-wrap { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .preview-wrap img {
+    max-width: 120px; max-height: 120px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    object-fit: contain;
+    background: #fafbfe;
+  }
+  .preview-info { font-size: 12px; color: var(--text-light); flex: 1; min-width: 120px; }
+  .preview-info .size { display: block; margin-top: 2px; }
+  .remove-img {
+    background: var(--danger);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn {
+    border: none;
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, opacity 0.2s;
+    font-family: inherit;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary {
+    width: 100%;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: #fff;
+    padding: 14px;
+    font-size: 16px;
+  }
+  .btn-secondary { background: #f0f1f7; color: var(--text); }
+  .btn-success { background: rgba(0,184,148,0.12); color: var(--success); }
+  .btn-danger { background: rgba(214,48,49,0.12); color: var(--danger); }
+  .btn-sm { padding: 8px 12px; font-size: 13px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .toast {
+    position: fixed;
+    left: 50%;
+    top: 20px;
+    transform: translateX(-50%) translateY(-80px);
+    background: #2d3436;
+    color: #fff;
+    padding: 12px 22px;
+    border-radius: 30px;
+    font-size: 14px;
+    z-index: 999;
+    opacity: 0;
+    transition: all 0.35s ease;
+    max-width: 90%;
+    text-align: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+    pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .toast.success { background: var(--success); }
+  .toast.error { background: var(--danger); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .toolbar .btn { flex: 1; min-width: 90px; }
+  .stats { font-size: 12px; color: var(--text-light); margin-bottom: 10px; }
+  .filter-row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .filter-row select { flex: 1; padding: 8px 10px; font-size: 13px; }
+  .list-empty { text-align: center; color: var(--text-light); padding: 28px 0; font-size: 14px; }
+  .record {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+    background: #fff;
+  }
+  .record-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .record-name { font-weight: 600; font-size: 14px; }
+  .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+  .badge-diamond { background: rgba(155,89,182,0.12); color: #8e44ad; }
+  .badge-iron { background: rgba(52,152,219,0.12); color: #2980b9; }
+  .badge-normal { background: rgba(99,110,114,0.12); color: var(--text-light); }
+  .record-detail { font-size: 13px; color: var(--text-light); line-height: 1.6; }
+  .record-detail b { color: var(--text); font-weight: 500; }
+  .record-img { margin-top: 8px; }
+  .record-img img {
+    max-width: 100%;
+    max-height: 160px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .record-footer { margin-top: 8px; font-size: 11px; color: #b2bec3; display: flex; justify-content: space-between; align-items: center; }
+  .record-footer .del {
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 6px;
+  }
+  .modal-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: var(--radius);
+    padding: 24px;
+    max-width: 360px;
+    width: 100%;
+    text-align: center;
+  }
+  .modal h3 { font-size: 17px; margin-bottom: 10px; }
+  .modal p { font-size: 14px; color: var(--text-light); margin-bottom: 20px; line-height: 1.6; }
+  .modal .modal-btns { display: flex; gap: 10px; }
+  .modal .modal-btns .btn { flex: 1; }
+  .modal .form-group { text-align: left; }
+  .modal .err-text { font-size: 12px; color: var(--danger); margin: 8px 0 0; display: none; }
+  .modal .err-text.show { display: block; }
+  .viewer {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+    display: none; align-items: center; justify-content: center; z-index: 1100; padding: 20px;
+  }
+  .viewer.show { display: flex; }
+  .viewer img { max-width: 100%; max-height: 90vh; border-radius: 8px; }
+  .viewer .close {
+    position: absolute; top: 16px; right: 20px; color: #fff; font-size: 28px; cursor: pointer;
+  }
+  footer { text-align: center; color: #b2bec3; font-size: 12px; margin-top: 20px; }
+  .nav-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .nav-tab {
+    flex: 1; text-align: center; padding: 12px 0; border-radius: 12px; font-size: 15px;
+    background: var(--card); color: var(--text-light); cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    font-weight: 500; transition: all 0.2s;
+  }
+  .nav-tab.active { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; font-weight: 600; }
+  .page { display: none; }
+  .page.show { display: block; }
+  .capacity-bar { margin-top: 6px; }
+  .capacity-bar .bar {
+    height: 6px; background: #eee; border-radius: 3px; overflow: hidden;
+  }
+  .capacity-bar .bar span {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--success), var(--warning), var(--danger));
+    border-radius: 3px; transition: width 0.3s;
+  }
+  .capacity-bar .cap-text { font-size: 11px; color: var(--text-light); margin-top: 4px; display: block; }
+  /* 权限控制 */
+  .admin-entry {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 12px;
+    color: #b2bec3;
+  }
+  .admin-entry button {
+    background: none;
+    border: none;
+    color: #b2bec3;
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: underline;
+    font-family: inherit;
+  }
+  .admin-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: rgba(108,92,231,0.08);
+    border: 1px solid rgba(108,92,231,0.2);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--primary);
+    flex-wrap: wrap;
+  }
+  .admin-bar .btn { flex: none; }
+  .lock-tip { font-size: 12px; color: var(--danger); margin-top: 8px; display: none; }
+  .lock-tip.show { display: block; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>粉丝信息收集</h1>
+  <p class="subtitle">填写你的收货信息，助力粉丝反馈与福利发放</p>
+
+  <!-- 管理模式提示条 -->
+  <div class="admin-bar hidden" id="adminBar">
+    <span id="adminBarText">管理员模式</span>
+    <button class="btn btn-secondary btn-sm" id="changePwdBtn">修改密码</button>
+    <button class="btn btn-secondary btn-sm" id="logoutBtn">退出管理</button>
+  </div>
+
+  <!-- 导航（仅管理模式显示） -->
+  <div class="nav-tabs hidden" id="navTabs">
+    <div class="nav-tab active" data-page="form">填写信息</div>
+    <div class="nav-tab" data-page="manage">数据管理</div>
+  </div>
+
+  <!-- 填写页（访客与管理都可看） -->
+  <div id="page-form" class="page show">
+    <div class="card">
+      <div class="card-title">基本信息</div>
+
+      <div class="form-group">
+        <label>粉丝昵称 <span class="required">*</span></label>
+        <input type="text" id="nickname" placeholder="你的粉丝昵称 / 圈名" maxlength="30">
+      </div>
+
+      <div class="form-group">
+        <label>真实姓名 <span class="required">*</span></label>
+        <input type="text" id="realname" placeholder="用于寄送实物核验" maxlength="20">
+      </div>
+
+      <div class="form-group">
+        <label>联系方式 <span class="required">*</span> <span class="hint">（手机号 / 微信号至少填一项）</span></label>
+        <div class="contact-tabs">
+          <div class="contact-tab active" data-contact="phone">手机号</div>
+          <div class="contact-tab" data-contact="wechat">微信号</div>
+        </div>
+        <input type="text" id="phone" placeholder="请输入手机号" maxlength="20" style="display:none;">
+        <input type="text" id="wechat" placeholder="请输入微信号" maxlength="30" style="display:none;">
+      </div>
+
+      <div class="form-group">
+        <label>收货地址 <span class="required">*</span></label>
+        <div class="inline-row">
+          <div class="form-group"><input type="text" id="province" placeholder="省 / 直辖市" maxlength="20"></div>
+          <div class="form-group"><input type="text" id="city" placeholder="市" maxlength="20"></div>
+          <div class="form-group"><input type="text" id="district" placeholder="区 / 县" maxlength="20"></div>
+        </div>
+        <textarea id="detail" placeholder="详细地址（街道、门牌号等）" maxlength="100"></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">粉丝等级</div>
+      <div class="form-group">
+        <label>粉丝等级 <span class="required">*</span></label>
+        <input type="text" id="level" placeholder="请输入你的粉丝等级，如：钻石粉 / 铁粉 / 金粉 / 其他" maxlength="30">
+      </div>
+
+      <div class="form-group">
+        <label>钻粉等级截图 <span class="hint">（支持 jpg/png/webp，可选）</span></label>
+        <div class="upload-box" id="uploadBox">
+          <div class="icon">📷</div>
+          <p>点击选择图片，或拖拽图片到这里</p>
+          <p>用于核验粉丝等级</p>
+        </div>
+        <input type="file" id="imageInput" accept="image/jpeg,image/png,image/webp">
+        <div class="preview-wrap" id="previewWrap" style="display:none;">
+          <img id="previewImg" alt="截图预览">
+          <div class="preview-info">
+            <span id="previewName"></span>
+            <span class="size" id="previewSize"></span>
+          </div>
+          <button class="remove-img" id="removeImg">移除</button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="submitBtn">提交信息</button>
+    </div>
+  </div>
+
+  <!-- 数据管理页（仅管理模式显示） -->
+  <div id="page-manage" class="page">
+    <div class="card">
+      <div class="card-title">已收集记录</div>
+      <div class="stats" id="stats"></div>
+      <div class="capacity-bar">
+        <div class="bar"><span id="capBar"></span></div>
+        <span class="cap-text" id="capText"></span>
+      </div>
+      <div class="toolbar">
+        <button class="btn btn-secondary btn-sm" id="exportCsvBtn">导出 CSV</button>
+        <button class="btn btn-secondary btn-sm" id="exportJsonBtn">导出 JSON</button>
+        <button class="btn btn-success btn-sm" id="clearBtn">清空数据</button>
+      </div>
+      <div class="filter-row">
+        <select id="levelFilter">
+          <option value="全部">全部等级</option>
+        </select>
+      </div>
+      <div id="recordList"></div>
+    </div>
+  </div>
+
+  <!-- 管理员入口（访客可见，点击弹密码框） -->
+  <div class="admin-entry" id="adminEntry">
+    <button id="openLoginBtn">管理员入口</button>
+  </div>
+</div>
+
+<!-- 登录弹窗 -->
+<div class="modal-mask" id="loginModal">
+  <div class="modal">
+    <h3>管理员登录</h3>
+    <p id="loginDesc">请输入管理员密码查看收集数据</p>
+    <div class="form-group hidden" id="loginEmailGroup">
+      <input type="email" id="loginEmail" placeholder="请输入管理员邮箱" maxlength="80" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <input type="password" id="loginPwd" placeholder="请输入密码" maxlength="72" autocomplete="current-password">
+    </div>
+    <p class="err-text" id="loginErr"></p>
+    <p class="lock-tip" id="lockTip"></p>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" id="cancelLogin">取消</button>
+      <button class="btn btn-primary" id="confirmLogin" style="width:auto;padding:12px 18px;">登录</button>
+    </div>
+  </div>
+</div>
+
+<!-- 修改密码弹窗 -->
+<div class="modal-mask" id="pwdModal">
+  <div class="modal">
+    <h3>修改管理员密码</h3>
+    <div class="form-group">
+      <input type="password" id="oldPwd" placeholder="请输入原密码" maxlength="30">
+    </div>
+    <div class="form-group">
+      <input type="password" id="newPwd1" placeholder="请输入新密码" maxlength="30">
+    </div>
+    <div class="form-group">
+      <input type="password" id="newPwd2" placeholder="请再次输入新密码" maxlength="30">
+    </div>
+    <p class="err-text" id="pwdErr"></p>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" id="cancelPwd">取消</button>
+      <button class="btn btn-primary" id="confirmPwd" style="width:auto;padding:12px 18px;">确认修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- 清空确认弹窗 -->
+<div class="modal-mask" id="clearModal">
+  <div class="modal">
+    <h3>确认清空全部数据？</h3>
+    <p>将删除本地已收集的全部 <span id="clearCount">0</span> 条记录（含截图），<b>此操作不可恢复</b>。建议先导出备份。</p>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" id="cancelClear">取消</button>
+      <button class="btn btn-danger" id="confirmClear">确认清空</button>
+    </div>
+  </div>
+</div>
+
+<!-- 大图查看 -->
+<div class="viewer" id="viewer">
+  <div class="close" id="viewerClose">✕</div>
+  <img id="viewerImg" alt="查看大图">
+</div>
+
+<!-- 提示条 -->
+<div class="toast" id="toast"></div>
+
+<footer>数据仅保存在本浏览器本地（localStorage），导出后请妥善保管</footer>
+
+<!-- Supabase JS SDK（CDN 引入；离线或无外网时自动回退本地模式） -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'fan_feedback_records_v1';
+  var AUTH_KEY = 'fan_admin_auth_v1';
+  var SESSION_KEY = 'fan_admin_session_v1';
+  var INIT_PWD = '888888';
+  var MAX_RECORDS = 20000;
+  var MAX_IMG_BYTES = 400 * 1024;
+  var MAX_FAIL = 5;          // 连续错误次数上限
+  var LOCK_MS = 30 * 1000;   // 锁定时间 30 秒
+  var SALT = 'marvis.fan.2026';
+
+  /* ---------- Supabase 云端配置（部署时填写） ---------- */
+  var SUPABASE_URL = 'https://nlgejcejshyrzrawqhox.supabase.co';        // 例：https://xxxx.supabase.co
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5sZ2VqY2Vqc2h5cnpyYXdxaG94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MjQwNDgsImV4cCI6MjEwNzIwMDA0OH0.vu6wbq7_M626BtMO7mTUoSA6NOs_t9hhBFAKh_KGYVo';   // 例：eyJhbGciOi...（anon public key）
+  var SUPABASE_TABLE = 'fan_records';
+  var supabaseClient = null;    // 初始化成功后非空，为空则走 localStorage 模式
+
+  function $(id) { return document.getElementById(id); }
+  function toast(msg, type) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.className = 'toast show' + (type ? ' ' + type : '');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { el.className = 'toast'; }, 2600);
+  }
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+  function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  }
+  function nowStr() {
+    var d = new Date();
+    function p(n) { return n < 10 ? '0' + n : '' + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  /* ---------- 密码哈希（简单加盐哈希，避免明文存储） ---------- */
+  function hashPwd(pwd) {
+    var s = SALT + pwd;
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) {
+      h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+    }
+    return 'h' + h.toString(36) + '_' + s.length.toString(36);
+  }
+
+  /* ---------- 认证状态 ---------- */
+  function loadAuth() {
+    try {
+      var raw = localStorage.getItem(AUTH_KEY);
+      if (raw) {
+        var obj = JSON.parse(raw);
+        if (obj && obj.hash) return obj;
+      }
+    } catch (e) {}
+    var def = { hash: hashPwd(INIT_PWD), failCount: 0, lockUntil: 0 };
+    try { localStorage.setItem(AUTH_KEY, JSON.stringify(def)); } catch (e) {}
+    return def;
+  }
+  function saveAuth(auth) {
+    try { localStorage.setItem(AUTH_KEY, JSON.stringify(auth)); } catch (e) {}
+  }
+  function isLocked(auth) {
+    return auth.lockUntil > Date.now();
+  }
+  function lockRemain(auth) {
+    return Math.max(0, Math.ceil((auth.lockUntil - Date.now()) / 1000));
+  }
+  function tryLogin(pwd) {
+    var auth = loadAuth();
+    if (isLocked(auth)) {
+      return { ok: false, locked: true, remain: lockRemain(auth) };
+    }
+    if (hashPwd(pwd) === auth.hash) {
+      auth.failCount = 0;
+      saveAuth(auth);
+      return { ok: true };
+    }
+    auth.failCount = (auth.failCount || 0) + 1;
+    if (auth.failCount >= MAX_FAIL) {
+      auth.lockUntil = Date.now() + LOCK_MS;
+      auth.failCount = 0;
+      saveAuth(auth);
+      return { ok: false, locked: true, remain: LOCK_MS / 1000 };
+    }
+    saveAuth(auth);
+    return { ok: false, remainTry: MAX_FAIL - auth.failCount };
+  }
+
+  /* ---------- 管理模式会话 ---------- */
+  var isAdmin = false;
+  function setAdmin(v) {
+    isAdmin = v;
+    try {
+      if (v) sessionStorage.setItem(SESSION_KEY, '1');
+      else sessionStorage.removeItem(SESSION_KEY);
+    } catch (e) {}
+    renderMode();
+  }
+  function renderMode() {
+    $('adminBar').classList.toggle('hidden', !isAdmin);
+    $('navTabs').classList.toggle('hidden', !isAdmin);
+    $('changePwdBtn').classList.toggle('hidden', isCloudMode());
+    if (isAdmin) {
+      $('adminBarText').textContent = '管理员模式（数据仅你可见）';
+      // 默认停留在当前页签，若在访客未管理状态则展示填写页
+      if (!$('page-form').classList.contains('show') && !$('page-manage').classList.contains('show')) {
+        $('page-form').classList.add('show');
+      }
+      if ($('page-manage').classList.contains('show')) renderList();
+    } else {
+      // 访客：只显示填写页，隐藏管理页
+      $('page-form').classList.add('show');
+      $('page-manage').classList.remove('show');
+      document.querySelectorAll('.nav-tab').forEach(function (t) {
+        t.classList.toggle('active', t.getAttribute('data-page') === 'form');
+      });
+    }
+  }
+
+  /* ---------- 页面切换（管理模式下） ---------- */
+  var pages = { form: $('page-form'), manage: $('page-manage') };
+  document.querySelectorAll('.nav-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      if (!isAdmin) return;
+      document.querySelectorAll('.nav-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      var key = tab.getAttribute('data-page');
+      pages.form.classList.toggle('show', key === 'form');
+      pages.manage.classList.toggle('show', key === 'manage');
+      if (key === 'manage') renderList();
+    });
+  });
+
+  /* ---------- 登录弹窗 ---------- */
+  var loginModal = $('loginModal');
+  $('openLoginBtn').addEventListener('click', function () {
+    if (isAdmin) return;
+    $('loginErr').className = 'err-text';
+    $('lockTip').className = 'lock-tip';
+    $('loginPwd').value = '';
+    $('loginEmail').value = '';
+    if (isCloudMode()) {
+      $('loginDesc').textContent = '请输入管理员邮箱与密码登录（Supabase 云端）';
+      $('loginEmailGroup').classList.remove('hidden');
+    } else {
+      $('loginDesc').textContent = '请输入管理员密码查看收集数据';
+      $('loginEmailGroup').classList.add('hidden');
+    }
+    var auth = loadAuth();
+    if (isLocked(auth)) {
+      $('lockTip').textContent = '错误次数过多，请 ' + lockRemain(auth) + ' 秒后再试';
+      $('lockTip').className = 'lock-tip show';
+      $('loginPwd').disabled = true;
+      $('confirmLogin').disabled = true;
+    } else {
+      $('loginPwd').disabled = false;
+      $('confirmLogin').disabled = false;
+    }
+    loginModal.classList.add('show');
+    setTimeout(function () { (isCloudMode() ? $('loginEmail') : $('loginPwd')).focus(); }, 100);
+  });
+  $('cancelLogin').addEventListener('click', function () { loginModal.classList.remove('show'); });
+  loginModal.addEventListener('click', function (e) { if (e.target === loginModal) loginModal.classList.remove('show'); });
+  $('confirmLogin').addEventListener('click', doLogin);
+  $('loginPwd').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+
+  function doLogin() {
+    var auth = loadAuth();
+    if (isLocked(auth)) {
+      $('lockTip').textContent = '错误次数过多，请 ' + lockRemain(auth) + ' 秒后再试';
+      $('lockTip').className = 'lock-tip show';
+      return;
+    }
+    if (isCloudMode()) {
+      doCloudLogin();
+      return;
+    }
+    var pwd = $('loginPwd').value;
+    if (!pwd) {
+      $('loginErr').textContent = '请输入密码';
+      $('loginErr').className = 'err-text show';
+      return;
+    }
+    var res = tryLogin(pwd);
+    if (res.ok) {
+      loginModal.classList.remove('show');
+      setAdmin(true);
+      renderList();
+      toast('登录成功，欢迎回来');
+    } else if (res.locked) {
+      $('lockTip').textContent = '错误次数过多，请 ' + res.remain + ' 秒后再试';
+      $('lockTip').className = 'lock-tip show';
+      $('loginPwd').disabled = true;
+      $('confirmLogin').disabled = true;
+    } else {
+      $('loginErr').textContent = '密码错误，还可尝试 ' + res.remainTry + ' 次';
+      $('loginErr').className = 'err-text show';
+      $('loginPwd').value = '';
+      $('loginPwd').focus();
+    }
+  }
+
+  // 云端模式：Supabase Auth 邮箱 + 密码登录
+  async function doCloudLogin() {
+    var email = $('loginEmail').value.trim();
+    var pwd = $('loginPwd').value;
+    if (!email || !pwd) {
+      $('loginErr').textContent = '请输入邮箱和密码';
+      $('loginErr').className = 'err-text show';
+      return;
+    }
+    var auth = loadAuth();
+    if (isLocked(auth)) {
+      $('lockTip').textContent = '错误次数过多，请 ' + lockRemain(auth) + ' 秒后再试';
+      $('lockTip').className = 'lock-tip show';
+      return;
+    }
+    $('confirmLogin').disabled = true;
+    try {
+      var res = await supabaseClient.auth.signInWithPassword({ email: email, password: pwd });
+      if (res.error) {
+        // 保留防爆破体验：本地累计失败次数并锁定
+        auth.failCount = (auth.failCount || 0) + 1;
+        if (auth.failCount >= MAX_FAIL) {
+          auth.lockUntil = Date.now() + LOCK_MS;
+          auth.failCount = 0;
+          saveAuth(auth);
+          $('lockTip').textContent = '登录失败次数过多，请 ' + Math.ceil(LOCK_MS / 1000) + ' 秒后再试';
+          $('lockTip').className = 'lock-tip show';
+          $('loginPwd').disabled = true;
+          $('confirmLogin').disabled = true;
+        } else {
+          saveAuth(auth);
+          $('loginErr').textContent = '登录失败：' + (res.error.message || '邮箱或密码错误') + '，还可尝试 ' + (MAX_FAIL - auth.failCount) + ' 次';
+          $('loginErr').className = 'err-text show';
+        }
+        $('confirmLogin').disabled = false;
+        return;
+      }
+      auth.failCount = 0;
+      saveAuth(auth);
+      loginModal.classList.remove('show');
+      setAdmin(true);
+      renderList(); // 登录成功后刷新管理列表（云端 RLS 仅登录后可读）
+      toast('登录成功，欢迎回来' + (res.data && res.data.user && res.data.user.email ? '，' + res.data.user.email : ''));
+    } catch (e) {
+      $('loginErr').textContent = '登录失败：网络异常，请稍后重试';
+      $('loginErr').className = 'err-text show';
+      $('confirmLogin').disabled = false;
+    }
+  }
+
+  /* ---------- 退出管理 ---------- */
+  $('logoutBtn').addEventListener('click', async function () {
+    if (isCloudMode()) {
+      try { await supabaseClient.auth.signOut(); } catch (e) {}
+    }
+    setAdmin(false);
+    toast('已退出管理，当前为访客模式');
+  });
+
+  /* ---------- 修改密码 ---------- */
+  var pwdModal = $('pwdModal');
+  $('changePwdBtn').addEventListener('click', function () {
+    if (isCloudMode()) {
+      toast('云端模式请到 Supabase 控制台 Authentication 修改', 'error');
+      return;
+    }
+    $('oldPwd').value = '';
+    $('newPwd1').value = '';
+    $('newPwd2').value = '';
+    $('pwdErr').className = 'err-text';
+    pwdModal.classList.add('show');
+  });
+  $('cancelPwd').addEventListener('click', function () { pwdModal.classList.remove('show'); });
+  pwdModal.addEventListener('click', function (e) { if (e.target === pwdModal) pwdModal.classList.remove('show'); });
+  $('confirmPwd').addEventListener('click', doChangePwd);
+
+  function doChangePwd() {
+    var old = $('oldPwd').value;
+    var n1 = $('newPwd1').value;
+    var n2 = $('newPwd2').value;
+    var auth = loadAuth();
+    if (hashPwd(old) !== auth.hash) {
+      $('pwdErr').textContent = '原密码错误';
+      $('pwdErr').className = 'err-text show';
+      return;
+    }
+    if (!n1 || n1.length < 4) {
+      $('pwdErr').textContent = '新密码至少 4 位';
+      $('pwdErr').className = 'err-text show';
+      return;
+    }
+    if (n1 !== n2) {
+      $('pwdErr').textContent = '两次输入的新密码不一致';
+      $('pwdErr').className = 'err-text show';
+      return;
+    }
+    auth.hash = hashPwd(n1);
+    auth.failCount = 0;
+    saveAuth(auth);
+    pwdModal.classList.remove('show');
+    toast('密码修改成功');
+  }
+
+  /* ---------- 联系方式切换 ---------- */
+  var contactType = 'phone';
+  document.querySelectorAll('.contact-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('.contact-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      contactType = tab.getAttribute('data-contact');
+      $('phone').style.display = contactType === 'phone' ? '' : 'none';
+      $('wechat').style.display = contactType === 'wechat' ? '' : 'none';
+    });
+  });
+
+  /* ---------- 图片选择与预览 ---------- */
+  var selectedImage = null;
+  var uploadBox = $('uploadBox');
+  var imageInput = $('imageInput');
+  uploadBox.addEventListener('click', function () { imageInput.click(); });
+  uploadBox.addEventListener('dragover', function (e) { e.preventDefault(); uploadBox.classList.add('dragover'); });
+  uploadBox.addEventListener('dragleave', function () { uploadBox.classList.remove('dragover'); });
+  uploadBox.addEventListener('drop', function (e) {
+    e.preventDefault();
+    uploadBox.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  imageInput.addEventListener('change', function () {
+    if (imageInput.files && imageInput.files[0]) handleFile(imageInput.files[0]);
+    imageInput.value = '';
+  });
+
+  function handleFile(file) {
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+      toast('仅支持 jpg / png / webp 图片', 'error');
+      return;
+    }
+    compressImage(file, function (res) {
+      if (!res) { toast('图片读取失败，请重试', 'error'); return; }
+      selectedImage = res;
+      $('previewImg').src = res.dataUrl;
+      $('previewName').textContent = res.name;
+      $('previewSize').textContent = fmtSize(res.size) + '（已压缩）';
+      $('previewWrap').style.display = 'flex';
+    });
+  }
+  $('removeImg').addEventListener('click', function () {
+    selectedImage = null;
+    $('previewWrap').style.display = 'none';
+    $('previewImg').src = '';
+  });
+
+  /* ---------- 图片压缩 ---------- */
+  function compressImage(file, cb) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onload = function () {
+        var MAX_W = 800, MAX_H = 800;
+        var w = img.width, h = img.height;
+        var ratio = Math.min(1, MAX_W / w, MAX_H / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        var quality = 0.7;
+        var outType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        var dataUrl = canvas.toDataURL(outType, quality);
+        while (dataUrl.length > MAX_IMG_BYTES * 1.37 && quality > 0.25) {
+          quality -= 0.15;
+          dataUrl = canvas.toDataURL(outType, quality);
+        }
+        cb({ dataUrl: dataUrl, name: file.name, size: Math.round(dataUrl.length * 0.75) });
+      };
+      img.onerror = function () { cb(null); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function () { cb(null); };
+    reader.readAsDataURL(file);
+  }
+
+  /* ---------- 提交 ---------- */
+  $('submitBtn').addEventListener('click', submit);
+
+  async function submit() {
+    var nickname = $('nickname').value.trim();
+    var realname = $('realname').value.trim();
+    var phone = $('phone').value.trim();
+    var wechat = $('wechat').value.trim();
+    var province = $('province').value.trim();
+    var city = $('city').value.trim();
+    var district = $('district').value.trim();
+    var detail = $('detail').value.trim();
+    var level = $('level').value.trim();
+
+    if (!nickname) { toast('请填写粉丝昵称', 'error'); return; }
+    if (!realname) { toast('请填写真实姓名', 'error'); return; }
+    if (!phone && !wechat) { toast('请至少填写手机号或微信号', 'error'); return; }
+    if (!province || !city || !district) { toast('请填写省 / 市 / 区', 'error'); return; }
+    if (!detail) { toast('请填写详细地址', 'error'); return; }
+    if (!level) { toast('请填写粉丝等级', 'error'); return; }
+
+    var newRecord = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      nickname: nickname,
+      realname: realname,
+      phone: phone || '',
+      wechat: wechat || '',
+      province: province,
+      city: city,
+      district: district,
+      detail: detail,
+      level: level,
+      image: selectedImage ? selectedImage.dataUrl : '',
+      time: nowStr()
+    };
+
+    // 云端模式：写入 Supabase；失败则回退 localStorage
+    if (isCloudMode()) {
+      var cnt = await cloudCount();
+      if (cnt >= 0 && cnt >= MAX_RECORDS) {
+        toast('云端已达 ' + MAX_RECORDS + ' 条上限，请联系管理员处理', 'error');
+        return;
+      }
+      var ok = await tryCloudInsert(newRecord);
+      if (ok) {
+        toast('提交成功！感谢你的支持', 'success');
+        resetForm();
+        return;
+      }
+      // 云端写入失败，回退本地
+      toast('云端暂不可用，已保存到本机浏览器', 'error');
+    }
+
+    // 本地模式 / 云端失败回退：写 localStorage
+    var records = loadRecords();
+    if (records.length >= MAX_RECORDS) {
+      toast('已达 ' + MAX_RECORDS + ' 条上限，请联系管理员处理', 'error');
+      return;
+    }
+    try {
+      var approx = JSON.stringify(newRecord).length * 2;
+      var used = getStorageUsed();
+      if (used + approx > 5 * 1024 * 1024) {
+        toast('浏览器存储空间不足，请联系管理员处理', 'error');
+        return;
+      }
+      records.push(newRecord);
+      saveRecords(records);
+    } catch (e) {
+      toast('存储失败（可能存储空间不足），请联系管理员处理', 'error');
+      return;
+    }
+    toast('提交成功！感谢你的支持', 'success');
+    resetForm();
+  }
+
+  function resetForm() {
+    $('nickname').value = '';
+    $('realname').value = '';
+    $('phone').value = '';
+    $('wechat').value = '';
+    $('province').value = '';
+    $('city').value = '';
+    $('district').value = '';
+    $('detail').value = '';
+    $('level').value = '';
+    selectedImage = null;
+    $('previewWrap').style.display = 'none';
+    $('previewImg').src = '';
+  }
+
+  /* ---------- 数据存取 ---------- */
+  function loadRecords() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      var arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function saveRecords(arr) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+  }
+  function getStorageUsed() {
+    var total = 0;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        var v = localStorage.getItem(k);
+        total += (k ? k.length : 0) + (v ? v.length : 0);
+      }
+    } catch (e) {}
+    return total * 2;
+  }
+
+  /* ---------- Supabase 云端（双模式：云端可用走云端，否则回退本地） ---------- */
+  function initSupabase() {
+    try {
+      if (window.supabase && window.supabase.createClient && SUPABASE_URL && SUPABASE_ANON_KEY) {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+    } catch (e) {
+      supabaseClient = null;
+    }
+  }
+  function isCloudMode() {
+    return !!supabaseClient;
+  }
+  // 管理员读取：云端优先，失败回退本地
+  async function loadRecordsForView() {
+    if (isCloudMode()) {
+      try {
+        var res = await supabaseClient.from(SUPABASE_TABLE).select('*');
+        if (!res.error && Array.isArray(res.data)) return res.data;
+      } catch (e) {}
+    }
+    return loadRecords();
+  }
+  // 云端写入，失败返回 false（由调用方决定回退本地）
+  async function tryCloudInsert(rec) {
+    if (!isCloudMode()) return false;
+    try {
+      var res = await supabaseClient.from(SUPABASE_TABLE).insert(rec);
+      if (res.error) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+  // 云端条数统计（RPC），失败返回 -1
+  async function cloudCount() {
+    if (!isCloudMode()) return -1;
+    try {
+      var res = await supabaseClient.rpc('count_fan_records');
+      if (res.error) return -1;
+      return typeof res.data === 'number' ? res.data : -1;
+    } catch (e) { return -1; }
+  }
+  // 云端模式提示（删除/清空）
+  function cloudManageTip() {
+    toast('云端模式：删除/清空请在 Supabase 控制台操作', 'error');
+  }
+
+  /* ---------- 记录列表渲染（仅管理） ---------- */
+  function levelClass(level) {
+    var l = String(level || '');
+    if (l.indexOf('钻石') >= 0) return 'badge-diamond';
+    if (l.indexOf('铁粉') >= 0) return 'badge-iron';
+    return 'badge-normal';
+  }
+  async function renderList() {
+    var records = await loadRecordsForView();
+    // 动态刷新等级筛选项（等级为自由文本）
+    var curFilter = $('levelFilter').value;
+    var levelSet = [];
+    records.forEach(function (r) {
+      if (r.level && levelSet.indexOf(r.level) < 0) levelSet.push(r.level);
+    });
+    var sel = $('levelFilter');
+    sel.innerHTML = '<option value="全部">全部等级</option>' + levelSet.map(function (l) {
+      return '<option value="' + esc(l) + '">' + esc(l) + '</option>';
+    }).join('');
+    if (levelSet.indexOf(curFilter) >= 0) sel.value = curFilter;
+    var filter = sel.value;
+    $('stats').textContent = '共 ' + records.length + ' 条记录（上限 ' + MAX_RECORDS + ' 条）' + (isCloudMode() ? '【云端】' : '【本地】');
+
+    if (isCloudMode()) {
+      $('capBar').style.width = '0%';
+      $('capText').textContent = '云端模式：数据存储于 Supabase 表 fan_records';
+    } else {
+      var used = getStorageUsed();
+      var pct = Math.min(100, Math.round(used / (5 * 1024 * 1024) * 100));
+      $('capBar').style.width = pct + '%';
+      $('capText').textContent = '本地存储占用约 ' + fmtSize(used) + ' / 5 MB';
+    }
+
+    var list = $('recordList');
+    var filtered = records;
+    if (filter !== '全部') {
+      filtered = records.filter(function (r) { return r.level === filter; });
+    }
+    if (!filtered.length) {
+      list.innerHTML = '<div class="list-empty">' + (records.length ? '当前筛选条件下暂无记录' : '还没有收集到任何记录，去填写页录入第一条吧') + '</div>';
+      return;
+    }
+    var html = '';
+    filtered.slice().reverse().forEach(function (r) {
+      html += '<div class="record">'
+        + '<div class="record-header"><span class="record-name">' + esc(r.nickname) + '</span>'
+        + '<span class="badge ' + levelClass(r.level) + '">' + esc(r.level) + '</span></div>'
+        + '<div class="record-detail">'
+        + '<div><b>姓名：</b>' + esc(r.realname) + '</div>'
+        + '<div><b>' + (r.phone ? '手机号' : '微信号') + '：</b>' + esc(r.phone || r.wechat) + '</div>'
+        + '<div><b>地址：</b>' + esc(r.province) + ' ' + esc(r.city) + ' ' + esc(r.district) + ' ' + esc(r.detail) + '</div>'
+        + '</div>'
+        + (r.image ? '<div class="record-img"><img src="' + r.image + '" data-full="' + r.image + '" alt="截图"></div>' : '')
+        + '<div class="record-footer"><span>' + esc(r.time) + '</span>'
+        + '<span class="del" data-id="' + r.id + '">删除</span></div>'
+        + '</div>';
+    });
+    list.innerHTML = html;
+
+    list.querySelectorAll('.record-img img').forEach(function (img) {
+      img.addEventListener('click', function () {
+        if (!isAdmin) return;
+        $('viewerImg').src = img.getAttribute('data-full');
+        $('viewer').classList.add('show');
+      });
+    });
+    list.querySelectorAll('.del').forEach(function (el) {
+      el.addEventListener('click', function () {
+        if (!isAdmin) return;
+        if (isCloudMode()) { cloudManageTip(); return; }
+        if (!confirm('确定删除这条记录吗？')) return;
+        var id = el.getAttribute('data-id');
+        var arr = loadRecords().filter(function (r) { return r.id !== id; });
+        saveRecords(arr);
+        renderList();
+        toast('已删除该记录');
+      });
+    });
+  }
+  $('levelFilter').addEventListener('change', renderList);
+  $('viewerClose').addEventListener('click', function () { $('viewer').classList.remove('show'); });
+  $('viewer').addEventListener('click', function (e) { if (e.target === $('viewer')) $('viewer').classList.remove('show'); });
+
+  /* ---------- 导出（仅管理） ---------- */
+  function download(filename, content, mime) {
+    var blob = new Blob(['\ufeff' + content], { type: mime + ';charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }, 200);
+  }
+
+  $('exportCsvBtn').addEventListener('click', async function () {
+    if (!isAdmin) return;
+    var records = await loadRecordsForView();
+    if (!records.length) { toast('暂无数据可导出', 'error'); return; }
+    var header = ['粉丝昵称', '真实姓名', '手机号', '微信号', '省份', '城市', '区县', '详细地址', '粉丝等级', '有无截图', '提交时间'];
+    function csvCell(v) {
+      v = (v == null ? '' : String(v)).replace(/"/g, '""');
+      return '"' + v + '"';
+    }
+    var rows = records.map(function (r) {
+      return [r.nickname, r.realname, r.phone, r.wechat, r.province, r.city, r.district, r.detail, r.level, r.image ? '有' : '无', r.time]
+        .map(csvCell).join(',');
+    });
+    var csv = header.map(csvCell).join(',') + '\n' + rows.join('\n');
+    download('粉丝信息_' + nowStr().replace(/[: ]/g, '-') + '.csv', csv, 'text/csv');
+    toast('CSV 已导出');
+  });
+
+  $('exportJsonBtn').addEventListener('click', async function () {
+    if (!isAdmin) return;
+    var records = await loadRecordsForView();
+    if (!records.length) { toast('暂无数据可导出', 'error'); return; }
+    download('粉丝信息_' + nowStr().replace(/[: ]/g, '-') + '.json', JSON.stringify(records, null, 2), 'application/json');
+    toast('JSON 已导出');
+  });
+
+  /* ---------- 清空（仅管理，二次确认） ---------- */
+  $('clearBtn').addEventListener('click', function () {
+    if (!isAdmin) return;
+    if (isCloudMode()) { cloudManageTip(); return; }
+    var n = loadRecords().length;
+    if (!n) { toast('暂无数据可清空', 'error'); return; }
+    $('clearCount').textContent = n;
+    $('clearModal').classList.add('show');
+  });
+  $('cancelClear').addEventListener('click', function () { $('clearModal').classList.remove('show'); });
+  $('confirmClear').addEventListener('click', function () {
+    if (!isAdmin) return;
+    if (isCloudMode()) { cloudManageTip(); return; }
+    saveRecords([]);
+    $('clearModal').classList.remove('show');
+    renderList();
+    toast('已清空全部数据');
+  });
+  $('clearModal').addEventListener('click', function (e) { if (e.target === $('clearModal')) $('clearModal').classList.remove('show'); });
+
+  /* ---------- URL 参数快速登录 ---------- */
+  function handleUrlAuth() {
+    var params = new URLSearchParams(location.search);
+    var admin = params.get('admin');
+    if (admin) {
+      if (isCloudMode()) {
+        // 云端模式：URL 快速登录不再使用本地密码校验，提示改用邮箱登录并清除参数
+        toast('云端模式请使用管理员邮箱登录', 'error');
+        try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+        return;
+      }
+      var auth = loadAuth();
+      if (isLocked(auth)) {
+        toast('登录失败：频繁错误锁定中', 'error');
+        return;
+      }
+      if (hashPwd(admin) === auth.hash) {
+        auth.failCount = 0;
+        saveAuth(auth);
+        setAdmin(true);
+        toast('已通过链接进入管理模式');
+        // 清除 URL 参数，避免密码停留在地址栏
+        try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+      } else {
+        auth.failCount = (auth.failCount || 0) + 1;
+        if (auth.failCount >= MAX_FAIL) {
+          auth.lockUntil = Date.now() + LOCK_MS;
+          auth.failCount = 0;
+        }
+        saveAuth(auth);
+        toast('管理员密码错误，无法进入', 'error');
+      }
+    }
+  }
+
+  /* ---------- 初始化 ---------- */
+  initSupabase(); // 配置了 SUPABASE_URL/KEY 且 SDK 可用时进入云端模式
+  loadAuth(); // 确保初始密码已写入
+  handleUrlAuth();
+  try {
+    isAdmin = sessionStorage.getItem(SESSION_KEY) === '1';
+  } catch (e) {}
+  renderMode();
+  renderList();
+})();
+</script>
+</body>
+</html>
